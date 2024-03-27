@@ -126,8 +126,14 @@ function _handleEvent(payload, ws) {
   }
 }
 
-// should be a valid nostr event, within accepted kinds, and have a SHA-256 hash
-const _validateEvent = (e) => validateEvent(e) && [1063, 30063].includes(e.kind) && !!_getFirstTag(e.tags, 'x');
+// 30063s and APK 1063s only accepted atm
+const _validateEvent = (e) => {
+  if (!validateEvent(e)) return false;
+  if (e.kind == 1063) {
+    return _getFirstTag(e.tags, 'm') == 'application/vnd.android.package-archive' && !!_getFirstTag(e.tags, 'x');
+  }
+  return e.kind == 30063;
+};
 
 const _getFirstTag = (tags, name) => tags.filter(t => t[0] == name)?.[0]?.[1];
 
