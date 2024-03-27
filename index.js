@@ -123,16 +123,22 @@ function _handleEvent(payload, ws) {
           const x = _getFirstTag(payload.tags, 'x');
           fetch(url).then(async file => {
             const arrayBuffer = await file.arrayBuffer();
-            const hasher = new Bun.CryptoHasher("sha256");
+            const hasher = new Bun.CryptoHasher('sha256');
             hasher.update(arrayBuffer);
             const hash = hasher.digest('hex');
-            if (x === hash && arrayBuffer.byteLength < 200_000_000) {
-              try {
-                const output = Bun.file(join(blossomDir, `${x}${extname(url)}`));
-                await Bun.write(output, new Blob([arrayBuffer]));
-              } catch (e) {
-                console.error(e);
+            if (x === hash) {
+              // only store files under 200MB
+              if (arrayBuffer.byteLength < 200_000_000) {
+                try {
+                  const output = Bun.file(join(blossomDir, `${x}${extname(url)}`));
+                  await Bun.write(output, new Blob([arrayBuffer]));
+                } catch (e) {
+                  console.error(e);
+                }
               }
+            } else {
+              // if hash doesn't match, remove garbage
+              db.query(`DELETE FROM events WHERE id = $id`).run({ '$id': payload.id });
             }
           }).catch(e => console.error(e));
         }
@@ -148,7 +154,8 @@ function _handleEvent(payload, ws) {
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
   if (e.kind == 1063) {
-    return _getFirstTag(e.tags, 'm') == 'application/vnd.android.package-archive' && !!_getFirstTag(e.tags, 'x');
+    return ['application/vnd.android.package-archive', 'application/pwa+zip'].includes(_getFirstTag(e.tags, 'm'))
+      && !!_getFirstTag(e.tags, 'x');
   }
   return e.kind == 30063;
 };
