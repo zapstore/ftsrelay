@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { join } from "bun:path";
+import { join, extname } from "bun:path";
 import { validateEvent } from 'nostr-tools';
 
 const db = new Database("relay.sqlite");
@@ -106,23 +106,35 @@ function _handleRequest(payload, filter, ws) {
   ws.send(JSON.stringify(["EOSE", payload]));
 }
 
-async function _handleEvent(payload, ws) {
+function _handleEvent(payload, ws) {
   try {
     const isValid = _validateEvent(payload);
     if (isValid) {
-      const [query, params] = _serialize(payload);
-      db.query(query).run(params);
+      const existsQuery = `SELECT EXISTS(SELECT 1 from events where id = $id) as result;`;
+      const exists = db.query(existsQuery).get({ '$id': payload.id });
+      // only process if it does not exist
+      if (!exists.result) {
+        const [query, params] = _serialize(payload);
+        db.query(query).run(params);
 
-      // keep file in local blossom
-      const url = _getFirstTag(payload.tags, 'url');
-      if (payload.kind === 1063 && url) {
-        const x = _getFirstTag(payload.tags, 'x');
-        const file = await fetch(url);
-        const arrayBuffer = await file.arrayBuffer();
-        const hasher = new Bun.CryptoHasher("sha256");
-        hasher.update(arrayBuffer);
-        if (x == hasher.digest('hex')) {
-          return Bun.write(join(blossomDir, x), file);
+        // keep file in local blossom
+        const url = _getFirstTag(payload.tags, 'url');
+        if (payload.kind === 1063 && url) {
+          const x = _getFirstTag(payload.tags, 'x');
+          fetch(url).then(async file => {
+            const arrayBuffer = await file.arrayBuffer();
+            const hasher = new Bun.CryptoHasher("sha256");
+            hasher.update(arrayBuffer);
+            const hash = hasher.digest('hex');
+            if (x === hash && arrayBuffer.byteLength < 200_000_000) {
+              try {
+                const output = Bun.file(join(blossomDir, `${x}${extname(url)}`));
+                await Bun.write(output, new Blob([arrayBuffer]));
+              } catch (e) {
+                console.error(e);
+              }
+            }
+          }).catch(e => console.error(e));
         }
       }
     }
@@ -154,4 +166,4 @@ function _deserialize(obj) {
   return obj;
 }
 
-console.log(`Listening on localhost:${server.port}`);
+console.log(`Listening on localhost:${server.port} and blossom mounted on: ${blossomDir}`);
