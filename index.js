@@ -106,7 +106,7 @@ function _handleRequest(payload, filter, ws) {
   ws.send(JSON.stringify(["EOSE", payload]));
 }
 
-function _handleEvent(payload, ws) {
+async function _handleEvent(payload, ws) {
   try {
     const isValid = _validateEvent(payload);
     if (isValid) {
@@ -117,7 +117,13 @@ function _handleEvent(payload, ws) {
       const url = _getFirstTag(payload.tags, 'url');
       if (payload.kind === 1063 && url) {
         const x = _getFirstTag(payload.tags, 'x');
-        fetch(url).then(file => Bun.write(join(blossomDir, x), file));
+        const file = await fetch(url);
+        const arrayBuffer = await file.arrayBuffer();
+        const hasher = new Bun.CryptoHasher("sha256");
+        hasher.update(arrayBuffer);
+        if (x == hasher.digest('hex')) {
+          return Bun.write(join(blossomDir, x), file);
+        }
       }
     }
     ws.send(JSON.stringify(["OK", payload.id, isValid, ""]));
