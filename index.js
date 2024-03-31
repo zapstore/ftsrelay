@@ -17,19 +17,24 @@ const server = Bun.serve({
       'Access-Control-Allow-Methods': 'GET, HEAD, PUT, DELETE'
     });
 
-    if (/^[0-9a-f]{64}/.test(pathname)) {
+    if (pathname === '/') {
+      // upgrade connection for ws
+      server.upgrade(req);
+      return new Response('Welcome to relay.zap.store');
+    }
+
+    if (/^[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
       const actualPath = await $`ls ${pathname.substring(0, 64)}*'`.text();
       const file = Bun.file(join(blossomDir, actualPath.trim()));
 
       if (['HEAD', 'GET'].includes(req.method)) {
         const exists = await file.exists();
         const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: actualPath.trim() }).text();
-        headers['Content-Type'] = _mimeType.trim();
+        headers.append('Content-Type', _mimeType.trim());
         return new Response(req.method == 'GET' ? file : null, { status: exists ? 200 : 404, headers });
       }
-    } else { // upgrade connection for ws
-      server.upgrade(req);
-      return new Response('Welcome to relay.zap.store');
+    } else {
+      return Response('not found', { status: 404 });
     }
   },
   websocket: {
