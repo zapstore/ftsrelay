@@ -1,9 +1,12 @@
 import { Database } from "bun:sqlite";
 import { join, extname } from "bun:path";
 import { validateEvent } from 'nostr-tools';
+import { $ } from "bun";
 
 const db = new Database("relay.sqlite");
 const blossomDir = Bun.env.BLOSSOM_DIR ?? '/tmp';
+
+$.cwd(blossomDir);
 
 const server = Bun.serve({
   async fetch(req, server) {
@@ -15,14 +18,14 @@ const server = Bun.serve({
     });
 
     if (/^[0-9a-f]{64}/.test(pathname)) {
-      const file = Bun.file(join(blossomDir, pathname.substring(0, 64)));
-      // TODO respond with actual mime type stored in db
-      if (req.method == 'HEAD') {
+      const actualPath = await $`ls ${pathname.substring(0, 64)}*'`.text();
+      const file = Bun.file(join(blossomDir, actualPath.trim()));
+
+      if (['HEAD', 'GET'].includes(req.method)) {
         const exists = await file.exists();
-        return new Response(null, { status: exists ? 200 : 404, headers });
-      }
-      if (req.method == 'GET') {
-        return new Response(file, { headers });
+        const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: actualPath.trim() }).text();
+        headers['Content-Type'] = _mimeType.trim();
+        return new Response(req.method == 'GET' ? file : null, { status: exists ? 200 : 404, headers });
       }
     } else { // upgrade connection for ws
       server.upgrade(req);
