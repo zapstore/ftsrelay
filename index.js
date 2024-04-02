@@ -10,7 +10,7 @@ $.cwd(blossomDir);
 
 const server = Bun.serve({
   async fetch(req, server) {
-    const pathname = new URL(req.url).pathname.substring(1);
+    const pathname = new URL(req.url).pathname;
     const headers = new Headers({
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Authorization,*',
@@ -20,7 +20,10 @@ const server = Bun.serve({
     if (pathname === '/') {
       // upgrade connection for ws
       server.upgrade(req);
-      return new Response('Welcome to relay.zap.store');
+      // TODO NIP-11
+      // see curl -i -H 'Accept: application/nostr+json' https://relay.damus.io
+      // return new Response(Bun.file("./nip11.json"));
+      return new Response('relay.zap.store');
     }
 
     if (/\/^[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
