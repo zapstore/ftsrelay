@@ -231,7 +231,7 @@ async function _saveInBlossom(payload) {
     const response = await fetch(url);
     const name = join(blossomDir, `${x}${ext}`);
     await Bun.write(name, response);
-    const [computedHash, newName] = _renameToHash(name);
+    const [computedHash, newName] = await _renameToHash(name);
 
     if (x !== computedHash) {
       // If hash doesn't match, remove garbage
