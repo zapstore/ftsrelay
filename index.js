@@ -181,6 +181,8 @@ async function _handleEvent(ws, payload) {
 
         _saveInBlossom(payload);
       }
+    } else {
+      ws.send(JSON.stringify(["OK", payload.id, false, `invalid: not accepted`]));
     }
   } catch (e) {
     ws.send(JSON.stringify(["OK", payload.id, false, `error: ${e}`]));
