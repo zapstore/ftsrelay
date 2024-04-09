@@ -1,6 +1,8 @@
-# relay.zap.store
+# bun-relay
 
-WIP
+A simple relay with NIP-50 full-text search, written in Javascript.
+
+Also functions as a basic Blossom server.
 
 ### export
 
