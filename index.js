@@ -79,10 +79,13 @@ function _handleRequest(ws, reqId, filter) {
   const subId = ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
   const wheres = [];
   const params = {};
+  var isLetterQuery = false;
+  var beforeEose = false;
 
   // Set up subscription upon initial request (when ws is an object, not a string),
   // register filter in subIds
   if (ws.data) {
+    beforeEose = true;
     ws.subscribe(subId);
     subIds[subId] = filter;
   }
@@ -99,11 +102,9 @@ function _handleRequest(ws, reqId, filter) {
       // #<single-letter (a-zA-Z)>
       if (slRegex.test(filterKey)) {
         const letter = filterKey[1];
-        wheres.push(`json_extract(json_each.value, '$[0]') = $letter
-          AND json_extract(json_each.value, '$[1]')
-          IN (${filterValue.map((_, i) => `:${letter}_${i}`)})`);
-        params.$letter = letter;
-        filterValue.forEach((e, i) => params[`:${letter}_${i}`] = e);
+        wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
+        isLetterQuery = true;
+        filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
       }
     }
   }
@@ -123,14 +124,13 @@ function _handleRequest(ws, reqId, filter) {
     params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
   }
 
-  // Do not EOSE during updates (!ws.data)
-  if (ws.data && wheres.length == 0) {
+  if (beforeEose && wheres.length == 0) {
     return server.publish(subId, JSON.stringify(["EOSE", reqId]));
   }
 
   let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-      FROM events ${params.$letter ? ", json_each(tags)" : ''}
-      WHERE ${wheres.join(' AND ')}  ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
+      FROM events ${isLetterQuery ? "inner join tags_index as t on t.fid = events.rowid" : ''}
+      WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
 
   // limit
   if (filter.limit) {
@@ -145,8 +145,7 @@ function _handleRequest(ws, reqId, filter) {
     server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
   }
 
-  // Do not EOSE during updates (!ws.data)
-  if (ws.data) {
+  if (beforeEose) {
     server.publish(subId, JSON.stringify(["EOSE", reqId]));
   }
 }
