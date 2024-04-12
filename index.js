@@ -34,7 +34,7 @@ const server = Bun.serve({
       return new Response('Welcome to relay.zap.store');
     }
 
-    if (/\/^[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
+    if (/^\/[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
       const actualPath = await $`ls ${pathname.substring(0, 64)}*'`.text();
       const file = Bun.file(join(blossomDir, actualPath.trim()));
 
