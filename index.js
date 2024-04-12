@@ -119,7 +119,7 @@ function _handleRequest(ws, reqId, filter) {
   }
 
   // NIP-50
-  if (filter.search) {
+  if (typeof filter.search == 'string') {
     wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
     params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
   }
@@ -198,14 +198,13 @@ function _handleError(ws, type) {
   ws.send(JSON.stringify(["NOTICE", `error: wtf you mean by ${type}`]));
 }
 
-// 30063s and APK 1063s only accepted atm
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
   if (e.kind == 1063) {
     return ['application/vnd.android.package-archive', 'application/pwa+zip'].includes(_getFirstTag(e.tags, 'm'))
       && !!_getFirstTag(e.tags, 'x');
   }
-  return e.kind == 30063;
+  return [30063, 32267].includes(e.kind);
 };
 
 const _getFirstTag = (tags, name) => tags.find(t => t[0] == name)?.[1];

@@ -177,3 +177,5 @@ dist
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+dump.sql
