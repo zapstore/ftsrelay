@@ -2,6 +2,9 @@ import { Database } from "bun:sqlite";
 import { join, extname } from "bun:path";
 import { validateEvent } from 'nostr-tools';
 import { $ } from "bun";
+import setup from './setup';
+
+setup();
 
 const db = new Database("relay.sqlite");
 const blossomDir = Bun.env.BLOSSOM_DIR ?? '/tmp';
@@ -94,17 +97,17 @@ function _handleRequest(ws, reqId, filter) {
     if (Array.isArray(filterValue)) {
       // ids, authors, kinds
       if (filterMappings[filterKey]) {
-        wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `:${filterKey}_${i}`)})`);
+        wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
         // NOTE: passing an array<number> as param not possible as it replaces values as strings
-        filterValue.forEach((e, i) => params[`:${filterKey}_${i}`] = e);
+        filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
       }
 
       // #<single-letter (a-zA-Z)>
       if (slRegex.test(filterKey)) {
         const letter = filterKey[1];
         wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
-        isLetterQuery = true;
         filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
+        isLetterQuery = true;
       }
     }
   }
@@ -129,7 +132,7 @@ function _handleRequest(ws, reqId, filter) {
   }
 
   let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-      FROM events ${isLetterQuery ? "inner join tags_index as t on t.fid = events.rowid" : ''}
+      FROM events ${isLetterQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
       WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
 
   // limit
@@ -148,20 +151,47 @@ function _handleRequest(ws, reqId, filter) {
   if (beforeEose) {
     server.publish(subId, JSON.stringify(["EOSE", reqId]));
   }
+
+  // remove ephemeral events after publishing
+  const ephemeralIds = events.filter(e => e.kind >= 20000 && e.kind < 30000).map(e => e.id);
+  if (ephemeralIds.length > 0) {
+    db.query(`DELETE FROM events WHERE id IN (${ephemeralIds.map(() => '?')})`).run(ephemeralIds);
+  }
 }
 
 async function _handleEvent(ws, payload) {
   try {
     const isValid = _validateEvent(payload);
     if (isValid) {
-      const existsQuery = `SELECT EXISTS(SELECT 1 from events where id = $id) as result;`;
+      const existsQuery = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $id) as result`;
       const exists = db.query(existsQuery).get({ $id: payload.id });
 
       if (exists.result) {
         return ws.send(JSON.stringify(["OK", payload.id, false, "duplicate"]));
       } else {
+        const n = payload.kind;
+        const parameterizable = n >= 30000 && n < 40000;
+        var idToRemove;
+
+        if (n === 0 || n == 3 || (n >= 10000 && n < 20000) || parameterizable) {
+          var idQuery = `SELECT id FROM events WHERE pubkey = $pubkey AND kind = $kind`;
+          if (parameterizable) {
+            idQuery = 'SELECT id FROM events INNER JOIN tags_index as t ON t.fid = events.rowid WHERE pubkey = $pubkey AND kind = $kind AND t.value = $d';
+          }
+          const dTag = _getFirstTag(payload.tags, 'd');
+          const result = db.query(idQuery).get({ $pubkey: payload.pubkey, $kind: n, $d: `d:${dTag}` });
+          idToRemove = result && result.id;
+        }
+
         const [query, params] = _serialize(payload);
+        if (idToRemove) {
+          db.query('BEGIN').run();
+        }
         db.query(query).run(params);
+        if (idToRemove) {
+          db.query('DELETE FROM events WHERE id = $id').run({ $id: idToRemove });
+          db.query('COMMIT').run();
+        }
 
         ws.send(JSON.stringify(["OK", payload.id, isValid, ""]));
 
@@ -178,7 +208,9 @@ async function _handleEvent(ws, payload) {
           await Bun.sleep(5); // wait 5ms betwen requests
         }
 
-        _saveInBlossom(payload);
+        if (payload.kind === 1063) {
+          _saveInBlossom(payload);
+        }
       }
     } else {
       ws.send(JSON.stringify(["OK", payload.id, false, `invalid: not accepted`]));
@@ -200,11 +232,8 @@ function _handleError(ws, type) {
 
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
-  if (e.kind == 1063) {
-    return ['application/vnd.android.package-archive', 'application/pwa+zip'].includes(_getFirstTag(e.tags, 'm'))
-      && !!_getFirstTag(e.tags, 'x');
-  }
-  return [30063, 32267].includes(e.kind);
+  // for now, hardcoded zapstore public key
+  return e.pubkey == '78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d';
 };
 
 const _getFirstTag = (tags, name) => tags.find(t => t[0] == name)?.[1];
@@ -222,7 +251,7 @@ function _deserialize(obj) {
 
 async function _saveInBlossom(payload) {
   const url = _getFirstTag(payload.tags, 'url');
-  if (payload.kind === 1063 && url) {
+  if (url) {
     const x = _getFirstTag(payload.tags, 'x');
     const ext = extname(url);
 
