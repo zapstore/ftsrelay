@@ -38,14 +38,17 @@ const server = Bun.serve({
     }
 
     if (/^\/[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
-      const actualPath = await $`ls ${pathname.substring(0, 64)}*'`.text();
-      const file = Bun.file(join(blossomDir, actualPath.trim()));
+      const _filePath = await $`ls ${pathname.substring(0, 64)}*`.text();
+      const filePath = _filePath.split('\n')[0];
+      const file = Bun.file(join(blossomDir, filePath));
 
       if (['HEAD', 'GET'].includes(req.method)) {
-        const exists = await file.exists();
-        const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: actualPath.trim() }).text();
+        if (!await file.exists()) {
+          return new Response(null, { status: 404, headers });
+        }
+        const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: filePath }).text();
         headers.append('Content-Type', _mimeType.trim());
-        return new Response(req.method == 'GET' ? file : null, { status: exists ? 200 : 404, headers });
+        return new Response(req.method == 'GET' ? file : null, { status: 200, headers });
       }
     } else {
       return Response('Not found', { status: 404 });
