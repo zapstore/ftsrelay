@@ -236,7 +236,7 @@ function _handleError(ws, type) {
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
   // for now, hardcoded zapstore public keys
-  return ['f36f1a2727b7ab02e3f6e99841cd2b4d9655f8cfa184bd4d68f4e4c72db8e5c1', 'c86eda2daae768374526bc54903f388d9a866c00740ec8db418d7ef2dca77b5b'].includes(e.pubkey);
+  return ['78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d', 'c86eda2daae768374526bc54903f388d9a866c00740ec8db418d7ef2dca77b5b'].includes(e.pubkey);
 };
 
 const _getFirstTag = (tags, name) => tags.find(t => t[0] == name)?.[1];
