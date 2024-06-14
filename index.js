@@ -67,6 +67,9 @@ const server = Bun.serve({
         console.error(`Error parsing ${message}`);
         return ws.send(JSON.stringify(["NOTICE", `error: ${e}`]));
       }
+      if (!Array.isArray(parsed)) {
+        return ws.send(JSON.stringify(["NOTICE", `error: please do not send garbage`]));
+      }
       const [type, payload, filter] = parsed;
       switch (type) {
         case 'REQ': return _handleRequest(ws, payload, filter);
