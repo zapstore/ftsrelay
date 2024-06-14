@@ -57,12 +57,17 @@ const server = Bun.serve({
 
   websocket: {
     async message(ws, message) {
-      const [type, payload, filter] = JSON.parse(message);
-      switch (type) {
-        case 'REQ': return _handleRequest(ws, payload, filter);
-        case 'EVENT': return _handleEvent(ws, payload);
-        case 'CLOSE': return _handleClose(ws, payload);
-        default: return _handleError(ws, type);
+      try {
+        const [type, payload, filter] = JSON.parse(message);
+        switch (type) {
+          case 'REQ': return _handleRequest(ws, payload, filter);
+          case 'EVENT': return _handleEvent(ws, payload);
+          case 'CLOSE': return _handleClose(ws, payload);
+          default: return _handleError(ws, type);
+        }
+      } catch (e) {
+        ws.send(JSON.stringify(["NOTICE", `error: ${e}`]));
+        console.error(`Tried to parse ${message}`);
       }
     },
     async close(ws) {
