@@ -25,7 +25,27 @@ const server = Bun.serve({
     });
 
     if (pathname === '/') {
-      // upgrade connection for ws
+      // REST API
+      if (req.method == 'POST' && req.headers.get('content-type') == 'application/json') {
+        const body = await req.json();
+        if (body.id && body.sig) {
+          try {
+            await _handleEvent(null, body);
+            return new Response(null, { status: 204 });
+          } catch (e) {
+            return new Response(`Error: ${e}`, { status: e.startsWith('bad input') ? 400 : 500 });
+          }
+        } else {
+          try {
+            const res = _handleRequest(null, '', body);
+            return new Response(JSON.stringify(res), { headers: { 'content-type': 'application/json' } });
+          } catch (e) {
+            return new Response(`Error: ${e}`, { status: e == 'bad input' ? 400 : 500 });
+          }
+        }
+      }
+
+      // Upgrade connection for ws
       server.upgrade(req, {
         data: {
           createdAt: Date.now()
@@ -95,83 +115,105 @@ const filterMappings = { ids: 'id', authors: 'pubkey', kinds: 'kind' };
 const slRegex = /^#[A-Za-z]$/;
 
 function _handleRequest(ws, reqId, filter) {
-  const subId = ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
-  const wheres = [];
-  const params = {};
-  var isLetterQuery = false;
-  var beforeEose = false;
+  try {
+    const subId = ws && ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
+    const wheres = [];
+    const params = {};
+    var isLetterQuery = false;
+    var beforeEose = false;
 
-  // Set up subscription upon initial request (when ws is an object, not a string),
-  // register filter in subIds
-  if (ws.data) {
-    beforeEose = true;
-    ws.subscribe(subId);
-    subIds[subId] = filter;
-  }
-
-  for (const [filterKey, filterValue] of Object.entries(filter)) {
-    if (Array.isArray(filterValue)) {
-      // ids, authors, kinds
-      if (filterMappings[filterKey]) {
-        wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
-        // NOTE: passing an array<number> as param not possible as it replaces values as strings
-        filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
-      }
-
-      // #<single-letter (a-zA-Z)>
-      if (slRegex.test(filterKey)) {
-        const letter = filterKey[1];
-        wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
-        filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
-        isLetterQuery = true;
+    if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))) {
+      if (ws) {
+        return ws.send(JSON.stringify(["NOTICE", `error: bad input`]));
+      } else {
+        throw 'bad input';
       }
     }
-  }
 
-  if (typeof filter.since == 'number') {
-    wheres.push(`created_at >= $since`);
-    params.$since = filter.since;
-  }
-  if (typeof filter.until == 'number') {
-    wheres.push(`created_at <= $until`);
-    params.$until = filter.until;
-  }
+    // Set up subscription upon initial request (when ws is an object, not a string),
+    // register filter in subIds
+    if (ws && ws.data) {
+      beforeEose = true;
+      ws.subscribe(subId);
+      subIds[subId] = filter;
+    }
 
-  // NIP-50
-  if (typeof filter.search == 'string') {
-    wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
-    params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
-  }
+    for (const [filterKey, filterValue] of Object.entries(filter)) {
+      if (Array.isArray(filterValue)) {
+        // ids, authors, kinds
+        if (filterMappings[filterKey]) {
+          wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
+          // NOTE: passing an array<number> as param not possible as it replaces values as strings
+          filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
+        }
 
-  if (beforeEose && wheres.length == 0) {
-    return server.publish(subId, JSON.stringify(["EOSE", reqId]));
-  }
+        // #<single-letter (a-zA-Z)>
+        if (slRegex.test(filterKey)) {
+          const letter = filterKey[1];
+          wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
+          filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
+          isLetterQuery = true;
+        }
+      }
+    }
 
-  let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
+    if (typeof filter.since == 'number') {
+      wheres.push(`created_at >= $since`);
+      params.$since = filter.since;
+    }
+    if (typeof filter.until == 'number') {
+      wheres.push(`created_at <= $until`);
+      params.$until = filter.until;
+    }
+
+    // NIP-50
+    if (typeof filter.search == 'string') {
+      wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
+      params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
+    }
+
+    if (beforeEose && wheres.length == 0) {
+      return server.publish(subId, JSON.stringify(["EOSE", reqId]));
+    }
+
+    let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
       FROM events ${isLetterQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
       WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
 
-  // limit
-  if (filter.limit) {
-    query += ' limit $limit';
-    params.$limit = filter.limit;
-  }
+    // limit
+    if (filter.limit) {
+      query += ' limit $limit';
+      params.$limit = filter.limit;
+    }
 
-  // server.publish(subId, `${query} ---- ${JSON.stringify(params)}`);
-  const events = db.query(query).all(params);
+    // server.publish(subId, `${query} ---- ${JSON.stringify(params)}`);
+    const events = db.query(query).all(params);
 
-  for (const e of events) {
-    server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
-  }
+    if (ws) {
+      for (const e of events) {
+        server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
+      }
 
-  if (beforeEose) {
-    server.publish(subId, JSON.stringify(["EOSE", reqId]));
-  }
+      if (beforeEose) {
+        server.publish(subId, JSON.stringify(["EOSE", reqId]));
+      }
+    }
 
-  // remove ephemeral events after publishing
-  const ephemeralIds = events.filter(e => e.kind >= 20000 && e.kind < 30000).map(e => e.id);
-  if (ephemeralIds.length > 0) {
-    db.query(`DELETE FROM events WHERE id IN (${ephemeralIds.map(() => '?')})`).run(ephemeralIds);
+    // remove ephemeral events after publishing
+    const ephemeralIds = events.filter(e => e.kind >= 20000 && e.kind < 30000).map(e => e.id);
+    if (ephemeralIds.length > 0) {
+      db.query(`DELETE FROM events WHERE id IN (${ephemeralIds.map(() => '?')})`).run(ephemeralIds);
+    }
+
+    if (!ws) {
+      return events.map(_deserialize);
+    }
+
+  } catch (e) {
+    if (ws) {
+      return ws.send(JSON.stringify(["NOTICE", `error: ${e}`]));
+    }
+    throw e;
   }
 }
 
@@ -183,7 +225,10 @@ async function _handleEvent(ws, payload) {
       const exists = db.query(existsQuery).get({ $id: payload.id });
 
       if (exists.result) {
-        return ws.send(JSON.stringify(["OK", payload.id, false, "duplicate"]));
+        if (ws) {
+          ws.send(JSON.stringify(["OK", payload.id, false, "duplicate"]));
+        }
+        return;
       } else {
         const n = payload.kind;
         const parameterizable = n >= 30000 && n < 40000;
@@ -209,19 +254,20 @@ async function _handleEvent(ws, payload) {
           db.query('COMMIT').run();
         }
 
-        ws.send(JSON.stringify(["OK", payload.id, isValid, ""]));
+        if (ws) {
+          ws.send(JSON.stringify(["OK", payload.id, isValid, ""]));
 
-        // For every new inserted event, notify all sockets with active requests
-        for (const subId of Object.keys(subIds)) {
-          const [wid, ...parts] = subId.split('-');
-          const reqId = parts.join('-');
-          const filter = subIds[subId];
+          // For every new inserted event, notify all sockets with active requests
+          for (const subId of Object.keys(subIds)) {
+            const [wid, ...parts] = subId.split('-');
+            const reqId = parts.join('-');
+            const filter = subIds[subId];
 
-          // The trick here is reusing _handleRequest with a modified filter
-          // (we re-pass the original filter but limited to this new ID)
-          const updateFilter = { ...filter, ids: [payload.id] };
-          _handleRequest(wid, reqId, updateFilter);
-          await Bun.sleep(5); // wait 5ms betwen requests
+            // The trick here is reusing _handleRequest with a modified filter
+            // (we re-pass the original filter but limited to this new ID)
+            const updateFilter = { ...filter, ids: [payload.id] };
+            _handleRequest(wid, reqId, updateFilter);
+          }
         }
 
         if (payload.kind === 1063) {
@@ -229,10 +275,16 @@ async function _handleEvent(ws, payload) {
         }
       }
     } else {
-      ws.send(JSON.stringify(["OK", payload.id, false, `invalid: not accepted`]));
+      if (ws) {
+        return ws.send(JSON.stringify(["OK", payload.id, false, `invalid: not accepted`]));
+      }
+      throw 'bad input (or your pubkey is restricted)';
     }
   } catch (e) {
-    ws.send(JSON.stringify(["OK", payload.id, false, `error: ${e}`]));
+    if (ws) {
+      ws.send(JSON.stringify(["OK", payload.id, false, `error: ${e}`]));
+    }
+    throw e;
   }
 }
 
