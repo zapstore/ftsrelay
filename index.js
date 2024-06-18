@@ -130,6 +130,15 @@ function _handleRequest(ws, reqId, filter) {
       }
     }
 
+    // NOTE: for now excluding any requests unrelated to zap.store
+    if (!filter.kinds || !filter.kinds.some(k => [1063, 30063, 32267, 30267].includes(k))) {
+      if (ws) {
+        server.publish(subId, JSON.stringify(["EOSE", reqId]));
+        return;
+      }
+      return [];
+    }
+
     // Set up subscription upon initial request (when ws is an object, not a string),
     // register filter in subIds
     if (ws && ws.data) {
