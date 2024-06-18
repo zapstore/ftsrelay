@@ -33,7 +33,7 @@ const server = Bun.serve({
             await _handleEvent(null, body);
             return new Response(null, { status: 204 });
           } catch (e) {
-            return new Response(`Error: ${e}`, { status: e.startsWith('bad input') ? 400 : 500 });
+            return new Response(`Error: ${e}`, { status: e.toString().startsWith('bad input') ? 400 : 500 });
           }
         } else {
           try {
@@ -199,11 +199,14 @@ function _handleRequest(ws, reqId, filter) {
       }
     }
 
-    // remove ephemeral events after publishing
+    // Remove ephemeral events after publishing
     const ephemeralIds = events.filter(e => e.kind >= 20000 && e.kind < 30000).map(e => e.id);
     if (ephemeralIds.length > 0) {
       db.query(`DELETE FROM events WHERE id IN (${ephemeralIds.map(() => '?')})`).run(ephemeralIds);
     }
+
+    // Log request
+    db.query(`INSERT INTO requests (payload) VALUES (?)`).run(JSON.stringify(filter));
 
     if (!ws) {
       return events.map(_deserialize);
