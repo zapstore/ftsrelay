@@ -181,9 +181,8 @@ function _handleRequest(ws, reqId, filter) {
     }
     if (typeof filter.search == 'string') {
       if (filter.search.length == 2) {
-        wheres.push(`t.value IN ($name_search)`);
-        params.$name_search = `name:${filter.search}`;
-        isTagQuery = true;
+        wheres.push(`events.tags like $name_search`);
+        params.$name_search = `%["name","${filter.search}"]%`;
       } else {
         wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
         params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
