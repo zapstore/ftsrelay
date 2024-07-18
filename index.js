@@ -6,7 +6,7 @@ import setup from './setup';
 
 setup();
 
-const db = new Database("relay.sqlite");
+const db = new Database('relay.sqlite');
 const blossomDir = Bun.env.BLOSSOM_DIR ?? '/tmp';
 
 $.cwd(blossomDir);
@@ -119,7 +119,7 @@ function _handleRequest(ws, reqId, filter) {
     const subId = ws && ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
     const wheres = [];
     const params = {};
-    var isLetterQuery = false;
+    var isTagQuery = false;
     var beforeEose = false;
 
     if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))) {
@@ -161,7 +161,7 @@ function _handleRequest(ws, reqId, filter) {
           const letter = filterKey[1];
           wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
           filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
-          isLetterQuery = true;
+          isTagQuery = true;
         }
       }
     }
@@ -176,9 +176,18 @@ function _handleRequest(ws, reqId, filter) {
     }
 
     // NIP-50
+    if (Array.isArray(filter.search) && filter.search.length === 1) {
+      filter.search = filter.search[0];
+    }
     if (typeof filter.search == 'string') {
-      wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
-      params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
+      if (filter.search.length == 2) {
+        wheres.push(`t.value IN ($name_search)`);
+        params.$name_search = `name:${filter.search}`;
+        isTagQuery = true;
+      } else {
+        wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
+        params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
+      }
     }
 
     if (beforeEose && wheres.length == 0) {
@@ -186,7 +195,7 @@ function _handleRequest(ws, reqId, filter) {
     }
 
     let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-      FROM events ${isLetterQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
+      FROM events ${isTagQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
       WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
 
     // limit
