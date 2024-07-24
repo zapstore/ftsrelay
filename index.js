@@ -124,7 +124,7 @@ function _handleRequest(ws, reqId, filter) {
 
     if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))) {
       if (ws) {
-        return ws.send(JSON.stringify(["NOTICE", `error: bad input`]));
+        return ws.send(JSON.stringify(["CLOSED", reqId, `error: bad input`]));
       } else {
         throw 'bad input';
       }
@@ -231,7 +231,7 @@ function _handleRequest(ws, reqId, filter) {
 
   } catch (e) {
     if (ws) {
-      return ws.send(JSON.stringify(["NOTICE", `error: ${e}`]));
+      return ws.send(JSON.stringify(["CLOSED", reqId, `error: ${e}`]));
     }
     throw e;
   }
