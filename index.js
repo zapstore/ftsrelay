@@ -122,11 +122,13 @@ function _handleRequest(ws, reqId, filter) {
     var isTagQuery = false;
     var beforeEose = false;
 
-    if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))) {
+    if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))
+      || !Object.entries(filter).filter(([k]) => ['ids', 'authors', 'kinds'].includes(k) || k.startsWith('#')).every(([_, v]) => Array.isArray(v))) {
+      const msg = `error: bad input: check keys and values follow NIP-01`;
       if (ws) {
-        return ws.send(JSON.stringify(["CLOSED", reqId, `error: bad input`]));
+        return ws.send(JSON.stringify(["CLOSED", reqId, msg]));
       } else {
-        throw 'bad input';
+        throw msg;
       }
     }
 
@@ -148,21 +150,19 @@ function _handleRequest(ws, reqId, filter) {
     }
 
     for (const [filterKey, filterValue] of Object.entries(filter)) {
-      if (Array.isArray(filterValue)) {
-        // ids, authors, kinds
-        if (filterMappings[filterKey]) {
-          wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
-          // NOTE: passing an array<number> as param not possible as it replaces values as strings
-          filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
-        }
+      // ids, authors, kinds
+      if (filterMappings[filterKey]) {
+        wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
+        // NOTE: passing an array<number> as param not possible as it replaces values as strings
+        filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
+      }
 
-        // #<single-letter (a-zA-Z)>
-        if (slRegex.test(filterKey)) {
-          const letter = filterKey[1];
-          wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
-          filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
-          isTagQuery = true;
-        }
+      // #<single-letter (a-zA-Z)>
+      if (slRegex.test(filterKey)) {
+        const letter = filterKey[1];
+        wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
+        filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
+        isTagQuery = true;
       }
     }
 
