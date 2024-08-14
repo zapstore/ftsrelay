@@ -90,9 +90,9 @@ const server = Bun.serve({
       if (!Array.isArray(parsed)) {
         return ws.send(JSON.stringify(["NOTICE", `error: please do not send garbage`]));
       }
-      const [type, payload, filter] = parsed;
+      const [type, payload, ...filters] = parsed;
       switch (type) {
-        case 'REQ': return _handleRequest(ws, payload, filter);
+        case 'REQ': return _handleRequest(ws, payload, filters);
         case 'EVENT': return _handleEvent(ws, payload);
         case 'CLOSE': return _handleClose(ws, payload);
         default: return _handleError(ws, type);
@@ -114,106 +114,107 @@ const server = Bun.serve({
 const filterMappings = { ids: 'id', authors: 'pubkey', kinds: 'kind' };
 const slRegex = /^#[A-Za-z]$/;
 
-function _handleRequest(ws, reqId, filter) {
+function _handleRequest(ws, reqId, filters) {
   try {
+    // Validations
+    for (const filter of filters) {
+      if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))
+        || !Object.entries(filter).filter(([k]) => ['ids', 'authors', 'kinds'].includes(k) || k.startsWith('#')).every(([_, v]) => Array.isArray(v))) {
+        const msg = `error: bad input: check keys and values follow NIP-01`;
+        if (ws) {
+          return ws.send(JSON.stringify(["CLOSED", reqId, msg]));
+        } else {
+          throw msg;
+        }
+      }
+
+      // NOTE: for now excluding any requests unrelated to zap.store
+      if (!filter.kinds || !filter.kinds.some(k => [1011, 1063, 30063, 32267, 30267].includes(k))) {
+        if (ws) {
+          server.publish(subId, JSON.stringify(["EOSE", reqId]));
+          return;
+        }
+        return [];
+      }
+    }
+
     const subId = ws && ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
-    const wheres = [];
-    const params = {};
-    var isTagQuery = false;
+    const events = [];
     var beforeEose = false;
 
-    if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))
-      || !Object.entries(filter).filter(([k]) => ['ids', 'authors', 'kinds'].includes(k) || k.startsWith('#')).every(([_, v]) => Array.isArray(v))) {
-      const msg = `error: bad input: check keys and values follow NIP-01`;
-      if (ws) {
-        return ws.send(JSON.stringify(["CLOSED", reqId, msg]));
-      } else {
-        throw msg;
-      }
-    }
-
-    // NOTE: for now excluding any requests unrelated to zap.store
-    if (!filter.kinds || !filter.kinds.some(k => [1011, 1063, 30063, 32267, 30267].includes(k))) {
-      if (ws) {
-        server.publish(subId, JSON.stringify(["EOSE", reqId]));
-        return;
-      }
-      return [];
-    }
-
     // Set up subscription upon initial request (when ws is an object, not a string),
-    // register filter in subIds
+    // register filters in subIds
     if (ws && ws.data) {
       beforeEose = true;
       ws.subscribe(subId);
-      subIds[subId] = filter;
-    }
-
-    for (const [filterKey, filterValue] of Object.entries(filter)) {
-      // ids, authors, kinds
-      if (filterMappings[filterKey]) {
-        wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
-        // NOTE: passing an array<number> as param not possible as it replaces values as strings
-        filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
-      }
-
-      // #<single-letter (a-zA-Z)>
-      if (slRegex.test(filterKey)) {
-        const letter = filterKey[1];
-        wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
-        filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
-        isTagQuery = true;
+      subIds[subId] = filters;
+      if (filters.length == 0) {
+        return server.publish(subId, JSON.stringify(["EOSE", reqId]));
       }
     }
 
-    if (typeof filter.since == 'number') {
-      wheres.push(`created_at >= $since`);
-      params.$since = filter.since;
-    }
-    if (typeof filter.until == 'number') {
-      wheres.push(`created_at <= $until`);
-      params.$until = filter.until;
-    }
+    // Queries
+    for (const filter of filters) {
+      const wheres = [];
+      const params = {};
+      var isTagQuery = false;
 
-    // NIP-50
-    if (Array.isArray(filter.search) && filter.search.length === 1) {
-      filter.search = filter.search[0];
-    }
-    if (typeof filter.search == 'string') {
-      if (filter.search.length == 2) {
-        wheres.push(`events.tags like $name_search`);
-        params.$name_search = `%["name","${filter.search}"]%`;
-      } else {
-        wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
-        params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
-      }
-    }
+      for (const [filterKey, filterValue] of Object.entries(filter)) {
+        // ids, authors, kinds
+        if (filterMappings[filterKey]) {
+          wheres.push(`${filterMappings[filterKey]} IN (${filterValue.map((_, i) => `$${filterKey}_${i}`)})`);
+          // NOTE: passing an array<number> as param not possible as it replaces values as strings
+          filterValue.forEach((e, i) => params[`$${filterKey}_${i}`] = e);
+        }
 
-    if (beforeEose && wheres.length == 0) {
-      return server.publish(subId, JSON.stringify(["EOSE", reqId]));
-    }
-
-    let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-      FROM events ${isTagQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
-      WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
-
-    // limit
-    if (filter.limit) {
-      query += ' limit $limit';
-      params.$limit = filter.limit;
-    }
-
-    // server.publish(subId, `${query} ---- ${JSON.stringify(params)}`);
-    const events = db.query(query).all(params);
-
-    if (ws) {
-      for (const e of events) {
-        server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
+        // #<single-letter (a-zA-Z)>
+        if (slRegex.test(filterKey)) {
+          const letter = filterKey[1];
+          wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
+          filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
+          isTagQuery = true;
+        }
       }
 
-      if (beforeEose) {
-        server.publish(subId, JSON.stringify(["EOSE", reqId]));
+      if (typeof filter.since == 'number') {
+        wheres.push(`created_at >= $since`);
+        params.$since = filter.since;
       }
+      if (typeof filter.until == 'number') {
+        wheres.push(`created_at <= $until`);
+        params.$until = filter.until;
+      }
+
+      // NIP-50
+      if (Array.isArray(filter.search) && filter.search.length === 1) {
+        filter.search = filter.search[0];
+      }
+      if (typeof filter.search == 'string') {
+        if (filter.search.length == 2) {
+          wheres.push(`events.tags like $name_search`);
+          params.$name_search = `%["name","${filter.search}"]%`;
+        } else {
+          wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
+          params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
+        }
+      }
+
+      let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
+        FROM events ${isTagQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
+        WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
+
+      // limit
+      if (filter.limit) {
+        query += ' limit $limit';
+        params.$limit = filter.limit;
+      }
+
+      // server.publish(subId, `${query} ---- ${JSON.stringify(params)}`);
+      const results = db.query(query).all(params);
+      events.push(...results);
+
+      // Log request
+      db.query(`INSERT INTO requests (payload) VALUES (?)`).run(JSON.stringify(filter));
     }
 
     // Remove ephemeral events after publishing
@@ -222,10 +223,16 @@ function _handleRequest(ws, reqId, filter) {
       db.query(`DELETE FROM events WHERE id IN (${ephemeralIds.map(() => '?')})`).run(ephemeralIds);
     }
 
-    // Log request
-    db.query(`INSERT INTO requests (payload) VALUES (?)`).run(JSON.stringify(filter));
+    // Response
+    if (ws) {
+      for (const e of events) {
+        server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
+      }
 
-    if (!ws) {
+      if (beforeEose) {
+        server.publish(subId, JSON.stringify(["EOSE", reqId]));
+      }
+    } else {
       return events.map(_deserialize);
     }
 
