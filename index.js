@@ -57,8 +57,31 @@ const server = Bun.serve({
       return new Response('Welcome to relay.zap.store');
     }
 
+    // TODO: Require blossom authorization event
+    if (pathname == '/upload' && req.method == 'POST') {
+      const body = req.body;
+      const filename = req.headers.get("X-Filename") || `${Date.now()}-tmp`;
+      const temp = join(blossomDir, filename);
+      const writer = Bun.file(temp).writer();
+      for await (const chunk of body) {
+        writer.write(chunk);
+      }
+      await writer.close();
+      const uploaded = Math.floor(Date.now() / 1000);
+      const _size = await $`wc -c < $FILE`.env({ FILE: temp }).text();
+      const [sha256, name] = await _renameToHash(temp);
+      return Response.json({
+        url: `https://cdn.zap.store/${name}`,
+        sha256,
+        size: +_size.trim(),
+        type: req.headers.get("Content-Type"),
+        uploaded,
+      });
+    }
+
     if (/^\/[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
-      const _filePath = await $`ls ${pathname.substring(0, 64)}*`.text();
+      const hash = pathname.substring(0, 64).replaceAll('/', '');
+      const _filePath = await $`ls ${hash}*`.text();
       const filePath = _filePath.split('\n')[0];
       const file = Bun.file(join(blossomDir, filePath));
 
@@ -328,6 +351,7 @@ function _handleError(ws, type) {
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
   // for now, hardcoded zapstore public keys
+  // return true
   return ['78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d', 'c86eda2daae768374526bc54903f388d9a866c00740ec8db418d7ef2dca77b5b'].includes(e.pubkey);
 };
 
