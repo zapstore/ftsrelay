@@ -179,3 +179,4 @@ dist
 *.sqlite-wal
 
 dump.sql
+test.js
