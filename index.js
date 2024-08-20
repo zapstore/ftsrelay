@@ -308,14 +308,14 @@ async function _handleEvent(ws, payload) {
 
           // For every new inserted event, notify all sockets with active requests
           for (const subId of Object.keys(subIds)) {
-            const [wid, ...parts] = subId.split('-');
+            const [_, ...parts] = subId.split('-');
             const reqId = parts.join('-');
             const filter = subIds[subId];
 
             // The trick here is reusing _handleRequest with a modified filter
             // (we re-pass the original filter but limited to this new ID)
             const updateFilter = { ...filter, ids: [payload.id] };
-            _handleRequest(wid, reqId, updateFilter);
+            _handleRequest(ws, reqId, [updateFilter]);
           }
         }
 
