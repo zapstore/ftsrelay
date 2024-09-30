@@ -39,7 +39,7 @@ export default () => {
     INSERT INTO events_fts (rowid, text)
       SELECT new.rowid, GROUP_CONCAT(json_extract(value, '$[1]'), ' ') as text
         FROM json_each(new.tags)
-        WHERE json_extract(value, '$[0]') IN ('url', 'title', 'description', 'name', 'summary', 'alt', 't', 'os', 'arch');
+        WHERE json_extract(value, '$[0]') IN ('url', 'title', 'description', 'name', 'summary', 'alt', 't', 'os', 'd', 'f');
     INSERT INTO tags_index (fid, value)
       SELECT new.rowid, json_extract(value, '$[0]') || ':' || json_extract(value, '$[1]')
         FROM json_each(new.tags)
