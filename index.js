@@ -83,20 +83,21 @@ const server = Bun.serve({
       });
     }
 
-    if (/^\/[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
-      const hash = pathname.substring(0, 64).replaceAll('/', '');
-      const _filePath = await $`ls ${hash}*`.text();
-      const filePath = _filePath.split('\n')[0];
-      const file = Bun.file(join(blossomDir, filePath));
-
-      if (['HEAD', 'GET'].includes(req.method)) {
-        if (!await file.exists()) {
-          return new Response(null, { status: 404, headers });
-        }
-        const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: filePath }).text();
-        headers.append('Content-Type', _mimeType.trim());
-        return new Response(req.method == 'GET' ? file : null, { status: 200, headers });
+    if (['HEAD', 'GET'].includes(req.method) && /^\/[0-9a-f]{64}(\.\S{1,}|$)/.test(pathname)) {
+      let filePath;
+      try {
+        // Pathname starts with / , so do 1-65
+        const hash = pathname.substring(1, 65);
+        const _filePath = await $`ls ${hash}*`.text();
+        filePath = _filePath.trim();
+      } catch (_) {
+        return new Response(null, { status: 404, headers });
       }
+
+      const file = Bun.file(join(blossomDir, filePath));
+      const _mimeType = await $`file -b --mime-type $FILE`.env({ FILE: filePath }).text();
+      headers.append('Content-Type', _mimeType.trim());
+      return new Response(req.method == 'GET' ? file : null, { status: 200, headers });
     } else {
       return Response('Not found', { status: 404 });
     }
