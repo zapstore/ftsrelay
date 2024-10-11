@@ -38,7 +38,7 @@ export default () => {
   db.query(`CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
     INSERT INTO events_fts (rowid, text)
       SELECT new.rowid, new.content as text
-        WHERE new.kind = 1063;
+        WHERE new.kind = 1063 OR new.kind = 32267;
     INSERT INTO events_fts (rowid, text)
       SELECT new.rowid, GROUP_CONCAT(json_extract(value, '$[1]'), ' ') as text
         FROM json_each(new.tags)
