@@ -37,9 +37,12 @@ export default () => {
   // db.query(`DROP TRIGGER events_ai`);
   db.query(`CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
     INSERT INTO events_fts (rowid, text)
+      SELECT new.rowid, new.content as text
+        WHERE new.kind = 1063;
+    INSERT INTO events_fts (rowid, text)
       SELECT new.rowid, GROUP_CONCAT(json_extract(value, '$[1]'), ' ') as text
         FROM json_each(new.tags)
-        WHERE json_extract(value, '$[0]') IN ('url', 'title', 'description', 'name', 'summary', 'alt', 't', 'os', 'd', 'f');
+        WHERE json_extract(value, '$[0]') IN ('url', 'title', 'description', 'name', 'summary', 'alt', 't', 'd', 'f');
     INSERT INTO tags_index (fid, value)
       SELECT new.rowid, json_extract(value, '$[0]') || ':' || json_extract(value, '$[1]')
         FROM json_each(new.tags)
