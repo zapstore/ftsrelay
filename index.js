@@ -1,7 +1,8 @@
-import { Database } from "bun:sqlite";
-import { join, extname } from "bun:path";
+import { Database } from 'bun:sqlite';
+import { join, extname } from 'bun:path';
 import { validateEvent } from 'nostr-tools';
-import { $ } from "bun";
+import * as nip19 from 'nostr-tools/nip19';
+import { $ } from 'bun';
 import setup from './setup';
 
 setup();
@@ -11,11 +12,14 @@ const blossomDir = Bun.env.BLOSSOM_DIR ?? '/tmp';
 
 $.cwd(blossomDir);
 
+const authorized = await Bun.file('./authorized.json').json();
+
 // Keys uniquely identify a connection with `${wid}-${reqId}`,
 // where `wid` is `ws.data.createdAt` and `reqId` the nostr request ID
 const subIds = {};
 
 const server = Bun.serve({
+  maxRequestBodySize: 1024 * 1024 * 300,
   async fetch(req, server) {
     const pathname = new URL(req.url).pathname;
     const headers = new Headers({
@@ -231,7 +235,7 @@ function _handleRequest(ws, reqId, filters) {
         params.$limit = filter.limit;
       }
 
-      // server.publish(subId, `${query} ---- ${JSON.stringify(params)}`);
+      // console.log(subId, `${query} ---- ${JSON.stringify(params)}`);
       const results = db.query(query).all(params);
       events.push(...results);
 
@@ -349,9 +353,20 @@ function _handleError(ws, type) {
 
 const _validateEvent = (e) => {
   if (!validateEvent(e)) return false;
-  // for now, hardcoded zapstore public keys
-  // return true
-  return ['78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d', 'c86eda2daae768374526bc54903f388d9a866c00740ec8db418d7ef2dca77b5b'].includes(e.pubkey);
+  const npub = nip19.npubEncode(e.pubkey);
+  const dTag = _getFirstTag(e.tags, 'd');
+
+  if (!authorized[npub]?.length) {
+    return true;
+  }
+
+  if (e.kind == 30063) {
+    return authorized[npub].length > 0 && authorized[npub].some((id) => dTag.startsWith(id));
+  } else if (e.kind == 32267) {
+    return authorized[npub].length > 0 && authorized[npub].some((id) => id == dTag);
+  } else {
+    return true;
+  }
 };
 
 const _getFirstTag = (tags, name) => tags.find(t => t[0] == name)?.[1];

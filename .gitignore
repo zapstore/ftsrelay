@@ -180,3 +180,5 @@ dist
 
 dump.sql
 test.js
+
+authorized.json
