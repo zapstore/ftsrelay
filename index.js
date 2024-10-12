@@ -195,11 +195,14 @@ function _handleRequest(ws, reqId, filters) {
         }
 
         // #<single-letter (a-zA-Z)>
+        const subqueries = [];
         if (slRegex.test(filterKey)) {
           const letter = filterKey[1];
-          wheres.push(`t.value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
+          subqueries.push(`SELECT fid FROM tags_index WHERE value IN (${filterValue.map((_, i) => `$${letter}_${i}`)})`);
           filterValue.forEach((e, i) => params[`$${letter}_${i}`] = `${letter}:${e}`);
-          isTagQuery = true;
+        }
+        if (subqueries.length > 0) {
+          wheres.push(`rowid IN (${subqueries.join(' INTERSECT ')})`);
         }
       }
 
@@ -227,8 +230,7 @@ function _handleRequest(ws, reqId, filters) {
       }
 
       let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-        FROM events ${isTagQuery ? "INNER JOIN tags_index as t ON t.fid = events.rowid" : ''}
-        WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
+        FROM events WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
 
       // limit
       if (filter.limit) {
