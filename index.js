@@ -359,11 +359,11 @@ const _validateEvent = (e) => {
   const npub = nip19.npubEncode(e.pubkey);
   const dTag = _getFirstTag(e.tags, 'd');
 
-  if (!authorized[npub]) {
+  if (authorized[npub] === undefined) {
     return false;
   }
 
-  if (!authorized[npub].length === 0) {
+  if (authorized[npub].length === 0) {
     return true;
   }
 
