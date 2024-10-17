@@ -89,7 +89,7 @@ const server = Bun.serve({
         // Pathname starts with / , so do 1-65
         const hash = pathname.substring(1, 65);
         const _filePath = await $`ls ${hash}*`.text();
-        filePath = _filePath.trim();
+        filePath = _filePath.split('\n')[0].trim();
       } catch (_) {
         return new Response(null, { status: 404, headers });
       }
