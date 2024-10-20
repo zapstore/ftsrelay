@@ -142,20 +142,12 @@ const server = Bun.serve({
 const filterMappings = { ids: 'id', authors: 'pubkey', kinds: 'kind' };
 const slRegex = /^#[A-Za-z]$/;
 
-function _handleRequest(ws, reqId, filters) {
+function _handleRequest(ws, reqId, filters, existingSubId) {
+  // console.log(`Calling _hr with ${JSON.stringify(filters)} - ${existingSubId}`);
+
   try {
     // Validations
     for (const filter of filters) {
-      if (!Object.keys(filter).every((k) => ['ids', 'authors', 'kinds', 'search', 'since', 'until', 'limit'].includes(k) || k.startsWith('#'))
-        || !Object.entries(filter).filter(([k]) => ['ids', 'authors', 'kinds'].includes(k) || k.startsWith('#')).every(([_, v]) => Array.isArray(v))) {
-        const msg = `error: bad input: check keys and values follow NIP-01`;
-        if (ws) {
-          return ws.send(JSON.stringify(["CLOSED", reqId, msg]));
-        } else {
-          throw msg;
-        }
-      }
-
       // NOTE: for now excluding any requests unrelated to zap.store
       if (!filter.kinds || !filter.kinds.some(k => [1063, 30063, 32267, 30267].includes(k))) {
         if (ws) {
@@ -165,14 +157,16 @@ function _handleRequest(ws, reqId, filters) {
       }
     }
 
-    const subId = ws && ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`;
+    const subId = existingSubId ?? (ws && ws.data ? `${ws.data.createdAt}-${reqId}` : `${ws}-${reqId}`);
     const events = [];
     var beforeEose = false;
 
     // Set up subscription upon initial request (when ws is an object, not a string),
     // register filters in subIds
-    if (ws && ws.data) {
+    if (ws && ws.data && !existingSubId) {
       beforeEose = true;
+      // console.log('Creating subscription', subId);
+
       ws.subscribe(subId);
       subIds[subId] = filters;
       if (filters.length == 0) {
@@ -182,9 +176,10 @@ function _handleRequest(ws, reqId, filters) {
 
     // Queries
     for (const filter of filters) {
+      // console.log('Running filter', filter);
+
       const wheres = [];
       const params = {};
-      var isTagQuery = false;
 
       for (const [filterKey, filterValue] of Object.entries(filter)) {
         // ids, authors, kinds
@@ -254,11 +249,13 @@ function _handleRequest(ws, reqId, filters) {
 
     // Response
     if (ws) {
+      // console.log('Sending', events.length, subId);
+
       for (const e of events) {
         server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
       }
 
-      if (beforeEose) {
+      if (beforeEose && !existingSubId) {
         server.publish(subId, JSON.stringify(["EOSE", reqId]));
       }
     } else {
@@ -317,12 +314,15 @@ async function _handleEvent(ws, payload) {
           for (const subId of Object.keys(subIds)) {
             const [_, ...parts] = subId.split('-');
             const reqId = parts.join('-');
-            const filter = subIds[subId];
+            const filters = subIds[subId];
 
-            // The trick here is reusing _handleRequest with a modified filter
-            // (we re-pass the original filter but limited to this new ID)
-            const updateFilter = { ...filter, ids: [payload.id] };
-            _handleRequest(ws, reqId, [updateFilter]);
+            // The trick here is reusing _handleRequest with modified filters
+            // (we re-pass the original filters but limited to this new ID)
+
+            const updatedFilters = filters.map(f => ({ ...f, ids: [payload.id] }));
+            // console.log(`updating ${JSON.stringify(updatedFilters)}`);
+
+            _handleRequest(ws, reqId, updatedFilters, subId);
           }
         }
 
@@ -346,6 +346,7 @@ async function _handleEvent(ws, payload) {
 
 function _handleClose(ws, reqId) {
   const subId = `${ws.data.createdAt}-${reqId}`;
+  // console.log('Closing subid', subId);
   delete subIds[subId];
   ws.send(JSON.stringify(["CLOSED", reqId]));
 }
