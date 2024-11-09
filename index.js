@@ -149,7 +149,7 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
     // Validations
     for (const filter of filters) {
       // NOTE: for now excluding any requests unrelated to zap.store
-      if (!filter.kinds || !filter.kinds.some(k => [1063, 30063, 32267, 30267].includes(k))) {
+      if (!filter.kinds || !filter.kinds.some(k => [1011, 1063, 30063, 32267, 30267].includes(k))) {
         if (ws) {
           return ws.send(JSON.stringify(["CLOSED", reqId, '']));
         }
@@ -236,6 +236,8 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
       // console.log(subId, `${query} ---- ${JSON.stringify(params)}`);
       const results = db.query(query).all(params);
       events.push(...results);
+
+      console.log('Query', Object.keys(filter));
     }
 
     // Remove ephemeral events after publishing
