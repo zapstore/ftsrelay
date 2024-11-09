@@ -236,9 +236,6 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
       // console.log(subId, `${query} ---- ${JSON.stringify(params)}`);
       const results = db.query(query).all(params);
       events.push(...results);
-
-      // Log request
-      db.query(`INSERT INTO requests (payload) VALUES (?)`).run(JSON.stringify(filter));
     }
 
     // Remove ephemeral events after publishing
@@ -325,10 +322,6 @@ async function _handleEvent(ws, payload) {
             _handleRequest(ws, reqId, updatedFilters, subId);
           }
         }
-
-        if (payload.kind === 1063) {
-          _saveInBlossom(payload);
-        }
       }
     } else {
       if (ws) {
@@ -388,25 +381,6 @@ function _serialize(obj) {
 function _deserialize(obj) {
   obj.tags = JSON.parse(obj.tags);
   return obj;
-}
-
-async function _saveInBlossom(payload) {
-  const url = _getFirstTag(payload.tags, 'url');
-  if (url) {
-    const x = _getFirstTag(payload.tags, 'x');
-    const ext = extname(url);
-
-    const response = await fetch(url);
-    const name = join(blossomDir, `${x}${ext}`);
-    await Bun.write(name, response);
-    const [computedHash, newName] = await _renameToHash(name);
-
-    if (x !== computedHash) {
-      // If hash doesn't match, remove garbage
-      db.query(`DELETE FROM events WHERE id = $id`).run({ $id: payload.id });
-      await $`rm $NAME'`.env({ NAME: newName }).quiet();
-    }
-  }
 }
 
 const _renameToHash = async (name) => {
