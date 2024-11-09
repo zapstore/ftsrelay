@@ -143,8 +143,6 @@ const filterMappings = { ids: 'id', authors: 'pubkey', kinds: 'kind' };
 const slRegex = /^#[A-Za-z]$/;
 
 function _handleRequest(ws, reqId, filters, existingSubId) {
-  // console.log(`Calling _hr with ${JSON.stringify(filters)} - ${existingSubId}`);
-
   try {
     // Validations
     for (const filter of filters) {
@@ -165,7 +163,6 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
     // register filters in subIds
     if (ws && ws.data && !existingSubId) {
       beforeEose = true;
-      // console.log('Creating subscription', subId);
 
       ws.subscribe(subId);
       subIds[subId] = filters;
@@ -176,8 +173,6 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
 
     // Queries
     for (const filter of filters) {
-      // console.log('Running filter', filter);
-
       const wheres = [];
       const params = {};
 
@@ -248,8 +243,6 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
 
     // Response
     if (ws) {
-      // console.log('Sending', events.length, subId);
-
       for (const e of events) {
         server.publish(subId, JSON.stringify(["EVENT", reqId, _deserialize(e)]));
       }
@@ -319,7 +312,6 @@ async function _handleEvent(ws, payload) {
             // (we re-pass the original filters but limited to this new ID)
 
             const updatedFilters = filters.map(f => ({ ...f, ids: [payload.id] }));
-            // console.log(`updating ${JSON.stringify(updatedFilters)}`);
 
             _handleRequest(ws, reqId, updatedFilters, subId);
           }
@@ -341,7 +333,6 @@ async function _handleEvent(ws, payload) {
 
 function _handleClose(ws, reqId) {
   const subId = `${ws.data.createdAt}-${reqId}`;
-  // console.log('Closing subid', subId);
   delete subIds[subId];
   ws.send(JSON.stringify(["CLOSED", reqId]));
 }
