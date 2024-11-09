@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { join, extname } from 'bun:path';
-import { validateEvent } from 'nostr-tools';
+import { verifyEvent } from 'nostr-tools';
 import * as nip19 from 'nostr-tools/nip19';
 import { $ } from 'bun';
 import setup from './setup';
@@ -342,7 +342,7 @@ function _handleError(ws, type) {
 }
 
 const _validateEvent = (e) => {
-  if (!validateEvent(e)) return false;
+  if (!verifyEvent(e)) return false;
   const npub = nip19.npubEncode(e.pubkey);
   const dTag = _getFirstTag(e.tags, 'd');
 
