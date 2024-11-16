@@ -22,12 +22,7 @@ export default () => {
     FOREIGN KEY(fid) REFERENCES events(rowid) ON DELETE CASCADE
   );`).run();
 
-  db.query(`CREATE TABLE IF NOT EXISTS requests(
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    payload TEXT NOT NULL
-  );`).run();
-
-  db.query(`CREATE INDEX IF NOT EXISTS id_idx ON events(id);`).run();
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS id_idx ON events(id);`).run();
   db.query(`CREATE INDEX IF NOT EXISTS pubkey_idx ON events(pubkey);`).run();
   db.query(`CREATE INDEX IF NOT EXISTS kind_idx ON events(kind);`).run();
   db.query(`CREATE INDEX IF NOT EXISTS value_idx ON tags_index(value);`).run();
