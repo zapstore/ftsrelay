@@ -58,7 +58,7 @@ const server = Bun.serve({
       // TODO NIP-11
       // see curl -i -H 'Accept: application/nostr+json' https://relay.damus.io
       // return new Response(Bun.file("./nip11.json"));
-      return new Response('Welcome to relay.zap.store');
+      return new Response('Welcome to relay.zapstore.dev');
     }
 
     // TODO: Require blossom authorization event
@@ -75,7 +75,7 @@ const server = Bun.serve({
       const _size = await $`wc -c < $FILE`.env({ FILE: temp }).text();
       const [sha256, name] = await _renameToHash(temp);
       return Response.json({
-        url: `https://cdn.zap.store/${name}`,
+        url: `https://cdn.zapstore.dev/${name}`,
         sha256,
         size: +_size.trim(),
         type: req.headers.get("Content-Type"),
@@ -146,7 +146,7 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
   try {
     // Validations
     for (const filter of filters) {
-      // NOTE: for now excluding any requests unrelated to zap.store
+      // NOTE: for now excluding any requests unrelated to Zapstore
       if (!filter.kinds || !filter.kinds.some(k => [1011, 1063, 30063, 32267, 30267].includes(k))) {
         if (ws) {
           return ws.send(JSON.stringify(["CLOSED", reqId, '']));
