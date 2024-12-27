@@ -210,17 +210,15 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
         filter.search = filter.search[0];
       }
       if (typeof filter.search == 'string') {
-        if (filter.search.length == 2) {
-          wheres.push(`events.tags like $name_search`);
-          params.$name_search = `%["name","${filter.search}"]%`;
-        } else {
-          wheres.push(`events.rowid IN (SELECT rowid FROM events_fts WHERE events_fts MATCH $search ORDER BY rank)`);
-          params.$search = filter.search.replace(/[^\w\s]|_/gi, " ");
-        }
+        // FTS stopped working properly, this is a hacky way of returning
+        // decent search results while we develop a new relay
+        wheres.push(`(events.tags like $name_search OR events.tags like $url_search)`);
+        params.$name_search = `%["name","%${filter.search}%"]%`;
+        params.$url_search = `%["url","%${filter.search}%"]%`;
       }
 
       let query = `SELECT events.id, pubkey, sig, kind, created_at, content, tags
-        FROM events WHERE ${wheres.join(' AND ')} ${filter.search ? '' : 'ORDER BY created_at DESC'}`;
+        FROM events WHERE ${wheres.join(' AND ')} ORDER BY created_at DESC`;
 
       // limit
       if (filter.limit) {
