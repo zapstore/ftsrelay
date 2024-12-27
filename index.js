@@ -147,7 +147,7 @@ function _handleRequest(ws, reqId, filters, existingSubId) {
     // Validations
     for (const filter of filters) {
       // NOTE: for now excluding any requests unrelated to Zapstore
-      if (!filter.kinds || !filter.kinds.some(k => [1011, 1063, 30063, 32267, 30267].includes(k))) {
+      if (!filter.kinds || !filter.kinds.some(k => [4, 1011, 1063, 30063, 32267, 30267].includes(k))) {
         if (ws) {
           return ws.send(JSON.stringify(["CLOSED", reqId, '']));
         }
@@ -343,6 +343,10 @@ const _validateEvent = (e) => {
   if (!verifyEvent(e)) return false;
   const npub = nip19.npubEncode(e.pubkey);
   const dTag = _getFirstTag(e.tags, 'd');
+
+  if (e.kind == 4) {
+    return true;
+  }
 
   if (authorized[npub] === undefined) {
     return false;
